@@ -13,6 +13,11 @@
         pre { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow: auto; }
         .qr { max-width: 260px; display: block; margin: 16px auto; }
         .hint { color: #64748b; font-size: .92rem; }
+        .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
+        .toolbar button { width: auto; margin-top: 0; padding: 10px 14px; }
+        .secondary { background: #475569; }
+        .event { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-top: 12px; }
+        .event strong { display: block; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -35,6 +40,9 @@
         <label for="payerEmail">E-mail do pagador</label>
         <input id="payerEmail" name="payerEmail" type="email" placeholder="comprador@email.com">
 
+        <label for="notificationUrl">Webhook para monitoramento</label>
+        <input id="notificationUrl" name="notificationUrl" type="url">
+
         <label for="paymentType">Tipo de pagamento</label>
         <select id="paymentType" name="paymentType">
             <option value="CHECKOUT_PRO">Checkout Pro (redirecionamento)</option>
@@ -49,12 +57,31 @@
         <div id="actions"></div>
         <pre id="json"></pre>
     </section>
+
+    <section>
+        <div class="toolbar">
+            <h2>Eventos do webhook</h2>
+            <button type="button" class="secondary" id="refresh-webhooks">Atualizar</button>
+            <button type="button" class="secondary" id="clear-webhooks">Limpar</button>
+        </div>
+        <p class="hint" id="local-webhook"></p>
+        <div id="webhook-events"></div>
+    </section>
 </main>
 <script>
 const form = document.querySelector('#payment-form');
 const result = document.querySelector('#result');
 const actions = document.querySelector('#actions');
 const json = document.querySelector('#json');
+const notificationUrl = document.querySelector('#notificationUrl');
+const localWebhook = document.querySelector('#local-webhook');
+const webhookEvents = document.querySelector('#webhook-events');
+const refreshWebhooks = document.querySelector('#refresh-webhooks');
+const clearWebhooks = document.querySelector('#clear-webhooks');
+
+const localWebhookUrl = `${window.location.origin}/api/webhooks/mercadopago`;
+notificationUrl.value = localWebhookUrl;
+localWebhook.textContent = localWebhookUrl;
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -66,6 +93,7 @@ form.addEventListener('submit', async (event) => {
     data.amount = Number(data.amount);
     if (!data.publicKey) delete data.publicKey;
     if (!data.payerEmail) delete data.payerEmail;
+    if (!data.notificationUrl) delete data.notificationUrl;
 
     try {
         const response = await fetch('/api/payments', {
@@ -94,6 +122,39 @@ form.addEventListener('submit', async (event) => {
         actions.textContent = error.message;
     }
 });
+
+async function loadWebhookEvents() {
+    const response = await fetch('/api/webhooks/mercadopago/events');
+    const events = await response.json();
+    if (!events.length) {
+        webhookEvents.innerHTML = '<p class="hint">Nenhum evento recebido.</p>';
+        return;
+    }
+    webhookEvents.innerHTML = events.map((event) => {
+        const title = [
+            `#${event.id}`,
+            event.type || event.query.topic,
+            event.action,
+            event.payment_id || event.paymentId || event.query.id,
+        ].filter(Boolean).join(' - ');
+        return `
+            <article class="event">
+                <strong>${title}</strong>
+                <span class="hint">${event.received_at || event.receivedAt}</span>
+                <pre>${JSON.stringify(event, null, 2)}</pre>
+            </article>
+        `;
+    }).join('');
+}
+
+refreshWebhooks.addEventListener('click', loadWebhookEvents);
+clearWebhooks.addEventListener('click', async () => {
+    await fetch('/api/webhooks/mercadopago/events', { method: 'DELETE' });
+    await loadWebhookEvents();
+});
+
+loadWebhookEvents();
+setInterval(loadWebhookEvents, 3000);
 </script>
 </body>
 </html>

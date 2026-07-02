@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     kotlin("jvm") version "2.0.21"
     kotlin("plugin.spring") version "2.0.21"
@@ -8,9 +10,26 @@ plugins {
 group = "com.example"
 version = "0.0.1-SNAPSHOT"
 
-java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+providers.gradleProperty("localBuildDir").orNull?.let {
+    layout.buildDirectory.set(file(it))
+}
 
-kotlin { compilerOptions { freeCompilerArgs.addAll("-Xjsr305=strict") } }
+val javaToolchainVersion = providers.gradleProperty("javaToolchainVersion")
+    .map(String::toInt)
+    .orElse(21)
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(javaToolchainVersion.get()) } }
+
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll("-Xjsr305=strict")
+        jvmTarget.set(JvmTarget.JVM_21)
+    }
+}
+
+tasks.withType<JavaCompile> {
+    options.release.set(21)
+}
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")

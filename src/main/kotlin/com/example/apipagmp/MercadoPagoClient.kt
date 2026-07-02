@@ -17,20 +17,25 @@ class MercadoPagoClient(builder: WebClient.Builder) {
         .build()
 
     fun createPreference(request: PaymentRequest): Map<String, Any?> {
+        val notificationUrl = request.notificationUrl?.takeIf { it.isNotBlank() }
         val payload = PreferencePayload(
             items = listOf(PreferenceItem(title = request.description, unitPrice = request.amount)),
             payer = request.payerEmail?.let { PayerPayload(email = it) },
             backUrls = BackUrls(request.successUrl, request.failureUrl, request.pendingUrl)
                 .takeIf { it.success != null || it.failure != null || it.pending != null },
+            autoReturn = "approved".takeIf { request.successUrl != null },
+            notificationUrl = notificationUrl,
         )
         return post("/checkout/preferences", request.accessToken, payload)
     }
 
     fun createPixPayment(request: PaymentRequest): Map<String, Any?> {
+        val notificationUrl = request.notificationUrl?.takeIf { it.isNotBlank() }
         val payload = PixPaymentPayload(
             transactionAmount = request.amount,
             description = request.description,
             payer = PayerPayload(email = request.payerEmail ?: "comprador@example.com"),
+            notificationUrl = notificationUrl,
         )
         return post("/v1/payments", request.accessToken, payload, UUID.randomUUID().toString())
     }

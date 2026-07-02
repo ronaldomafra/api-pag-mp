@@ -3,7 +3,9 @@ package com.example.apipagmp
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -21,7 +23,26 @@ class PaymentController(private val mercadoPagoClient: MercadoPagoClient) {
     @ExceptionHandler(MercadoPagoException::class)
     fun handleMercadoPagoException(exception: MercadoPagoException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(mapOf("message" to (exception.message ?: "Erro no Mercado Pago")))
+
+    @ExceptionHandler(MethodArgumentNotValidException::class)
+    fun handleValidationException(exception: MethodArgumentNotValidException): ResponseEntity<Map<String, Any>> {
+        val errors = exception.bindingResult.fieldErrors.map {
+            "${it.field.toSnakeCase()}: ${it.defaultMessage ?: "valor inválido"}"
+        }
+        return ResponseEntity.badRequest().body(mapOf("message" to "Dados inválidos", "errors" to errors))
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException::class)
+    fun handleUnreadableMessage(exception: HttpMessageNotReadableException): ResponseEntity<Map<String, String>> {
+        val detail = exception.mostSpecificCause.message ?: exception.message ?: "JSON inválido"
+        val missingField = Regex("JSON property ([A-Za-z0-9_]+)").find(detail)?.groupValues?.get(1)
+        val message = missingField?.let { "Campo obrigatório ausente: $it" } ?: "JSON inválido ou incompatível"
+        return ResponseEntity.badRequest().body(mapOf("message" to message, "detail" to detail))
+    }
 }
+
+private fun String.toSnakeCase(): String =
+    replace(Regex("([a-z])([A-Z])"), "$1_$2").lowercase()
 
 private fun Map<String, Any?>.toCheckoutResponse() = PaymentResponse(
     type = PaymentType.CHECKOUT_PRO,

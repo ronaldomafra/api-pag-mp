@@ -9,17 +9,19 @@ import jakarta.validation.constraints.NotBlank
 import java.math.BigDecimal
 
 const val BRL_CURRENCY = "BRL"
+const val DEFAULT_NOTIFICATION_URL = "http://localhost:8080/api/webhooks/mercadopago"
 
 data class PaymentRequest(
-    @field:NotBlank val accessToken: String,
-    val publicKey: String? = null,
+    @field:NotBlank @JsonAlias("accessToken") val accessToken: String,
+    @JsonAlias("publicKey") val publicKey: String? = null,
     @field:DecimalMin("0.01") val amount: BigDecimal,
     @field:NotBlank val description: String,
-    val paymentType: PaymentType,
-    @field:Email val payerEmail: String? = null,
-    val successUrl: String? = null,
-    val failureUrl: String? = null,
-    val pendingUrl: String? = null,
+    @JsonAlias("paymentType") val paymentType: PaymentType,
+    @field:Email @JsonAlias("payerEmail") val payerEmail: String? = null,
+    @JsonAlias("successUrl") val successUrl: String? = null,
+    @JsonAlias("failureUrl") val failureUrl: String? = null,
+    @JsonAlias("pendingUrl") val pendingUrl: String? = null,
+    @JsonAlias("notificationUrl") val notificationUrl: String? = DEFAULT_NOTIFICATION_URL,
 )
 
 enum class PaymentType { CHECKOUT_PRO, PIX }
@@ -40,7 +42,8 @@ data class PreferencePayload(
     val items: List<PreferenceItem>,
     val payer: PayerPayload? = null,
     @JsonAlias("back_urls") val backUrls: BackUrls? = null,
-    @JsonAlias("auto_return") val autoReturn: String? = "approved",
+    @JsonAlias("auto_return") val autoReturn: String? = null,
+    @JsonAlias("notification_url") val notificationUrl: String? = null,
 )
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -67,6 +70,7 @@ data class PixPaymentPayload(
     val description: String,
     @JsonAlias("payment_method_id") val paymentMethodId: String = "pix",
     val payer: PayerPayload,
+    @JsonAlias("notification_url") val notificationUrl: String? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
