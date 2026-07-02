@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pagamento Mercado Pago</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
+        main { max-width: 760px; margin: 40px auto; background: white; padding: 28px; border-radius: 14px; box-shadow: 0 12px 30px #0001; }
+        label { display: block; margin-top: 14px; font-weight: 700; }
+        input, select, button { width: 100%; padding: 12px; margin-top: 6px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+        button { margin-top: 22px; background: #009ee3; color: white; border: 0; font-weight: 700; cursor: pointer; }
+        pre { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow: auto; }
+        .qr { max-width: 260px; display: block; margin: 16px auto; }
+        .hint { color: #64748b; font-size: .92rem; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Configurar pagamento Mercado Pago</h1>
+    <p class="hint">Informe credenciais de teste ou produção obtidas no Painel do Desenvolvedor do Mercado Pago.</p>
+    <form id="payment-form">
+        <label for="accessToken">Access Token</label>
+        <input id="accessToken" name="accessToken" type="password" required placeholder="APP_USR... ou TEST...">
+
+        <label for="publicKey">Public Key (opcional)</label>
+        <input id="publicKey" name="publicKey" placeholder="APP_USR... ou TEST...">
+
+        <label for="amount">Valor (R$)</label>
+        <input id="amount" name="amount" type="number" min="0.01" step="0.01" required value="10.00">
+
+        <label for="description">Descrição</label>
+        <input id="description" name="description" required value="Produto de teste">
+
+        <label for="payerEmail">E-mail do pagador</label>
+        <input id="payerEmail" name="payerEmail" type="email" placeholder="comprador@email.com">
+
+        <label for="paymentType">Tipo de pagamento</label>
+        <select id="paymentType" name="paymentType">
+            <option value="CHECKOUT_PRO">Checkout Pro (redirecionamento)</option>
+            <option value="PIX">Pix (QR Code)</option>
+        </select>
+
+        <button type="submit">Criar pagamento</button>
+    </form>
+
+    <section id="result" hidden>
+        <h2>Resultado</h2>
+        <div id="actions"></div>
+        <pre id="json"></pre>
+    </section>
+</main>
+<script>
+const form = document.querySelector('#payment-form');
+const result = document.querySelector('#result');
+const actions = document.querySelector('#actions');
+const json = document.querySelector('#json');
+
+form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    actions.innerHTML = 'Criando pagamento...';
+    json.textContent = '';
+    result.hidden = false;
+
+    const data = Object.fromEntries(new FormData(form).entries());
+    data.amount = Number(data.amount);
+    if (!data.publicKey) delete data.publicKey;
+    if (!data.payerEmail) delete data.payerEmail;
+
+    try {
+        const response = await fetch('/api/payments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        const body = await response.json();
+        json.textContent = JSON.stringify(body, null, 2);
+        actions.innerHTML = '';
+
+        if (!response.ok) throw new Error(body.message || 'Erro ao criar pagamento');
+        if (body.redirect_url) {
+            actions.innerHTML = `<a href="${body.redirect_url}" target="_blank" rel="noopener">Abrir Checkout Pro</a>`;
+        }
+        if (body.qr_code_base64) {
+            actions.innerHTML += `<img class="qr" alt="QR Code Pix" src="data:image/png;base64,${body.qr_code_base64}">`;
+        }
+        if (body.qr_code) {
+            actions.innerHTML += `<p><strong>Copia e cola Pix:</strong></p><pre>${body.qr_code}</pre>`;
+        }
+        if (body.ticket_url) {
+            actions.innerHTML += `<p><a href="${body.ticket_url}" target="_blank" rel="noopener">Abrir comprovante/instruções</a></p>`;
+        }
+    } catch (error) {
+        actions.textContent = error.message;
+    }
+});
+</script>
+</body>
+</html>
