@@ -13,11 +13,9 @@
         pre { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 8px; overflow: auto; }
         .qr { max-width: 260px; display: block; margin: 16px auto; }
         .hint { color: #64748b; font-size: .92rem; }
-        .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 18px; }
-        .toolbar button { width: auto; margin-top: 0; padding: 10px 14px; }
-        .secondary { background: #475569; }
-        .event { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-top: 12px; }
-        .event strong { display: block; margin-bottom: 6px; }
+        .status-box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-top: 16px; background: #f8fafc; }
+        .status-box.paid { border-color: #16a34a; background: #f0fdf4; color: #14532d; }
+        .status-title { font-weight: 700; margin-bottom: 6px; }
     </style>
 </head>
 <body>
@@ -40,9 +38,6 @@
         <label for="payerEmail">E-mail do pagador</label>
         <input id="payerEmail" name="payerEmail" type="email" placeholder="comprador@email.com">
 
-        <label for="notificationUrl">Webhook para monitoramento</label>
-        <input id="notificationUrl" name="notificationUrl" type="url">
-
         <label for="paymentType">Tipo de pagamento</label>
         <select id="paymentType" name="paymentType">
             <option value="CHECKOUT_PRO">Checkout Pro (redirecionamento)</option>
@@ -58,14 +53,9 @@
         <pre id="json"></pre>
     </section>
 
-    <section>
-        <div class="toolbar">
-            <h2>Eventos do webhook</h2>
-            <button type="button" class="secondary" id="refresh-webhooks">Atualizar</button>
-            <button type="button" class="secondary" id="clear-webhooks">Limpar</button>
-        </div>
-        <p class="hint" id="local-webhook"></p>
-        <div id="webhook-events"></div>
+    <section id="payment-status-section" hidden>
+        <h2>Status do pagamento</h2>
+        <div id="payment-status" class="status-box"></div>
     </section>
 </main>
 <script>
@@ -73,15 +63,11 @@ const form = document.querySelector('#payment-form');
 const result = document.querySelector('#result');
 const actions = document.querySelector('#actions');
 const json = document.querySelector('#json');
-const notificationUrl = document.querySelector('#notificationUrl');
-const localWebhook = document.querySelector('#local-webhook');
-const webhookEvents = document.querySelector('#webhook-events');
-const refreshWebhooks = document.querySelector('#refresh-webhooks');
-const clearWebhooks = document.querySelector('#clear-webhooks');
+const paymentStatusSection = document.querySelector('#payment-status-section');
+const paymentStatus = document.querySelector('#payment-status');
 
-const localWebhookUrl = `${window.location.origin}/api/webhooks/mercadopago`;
-notificationUrl.value = localWebhookUrl;
-localWebhook.textContent = localWebhookUrl;
+let currentPaymentId = localStorage.getItem('apiPagMpCurrentPaymentId');
+let paymentStatusTimer = null;
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -93,7 +79,6 @@ form.addEventListener('submit', async (event) => {
     data.amount = Number(data.amount);
     if (!data.publicKey) delete data.publicKey;
     if (!data.payerEmail) delete data.payerEmail;
-    if (!data.notificationUrl) delete data.notificationUrl;
 
     try {
         const response = await fetch('/api/payments', {
@@ -106,6 +91,17 @@ form.addEventListener('submit', async (event) => {
         actions.innerHTML = '';
 
         if (!response.ok) throw new Error(body.message || 'Erro ao criar pagamento');
+        if (body.local_payment_id) {
+            currentPaymentId = body.local_payment_id;
+            localStorage.setItem('apiPagMpCurrentPaymentId', currentPaymentId);
+            renderPaymentStatus({
+                status: body.status || 'pending',
+                status_message: body.status_message || 'Aguardando confirmacao do pagamento.',
+                paid: Boolean(body.paid),
+                local_payment_id: currentPaymentId,
+            });
+            startPaymentStatusPolling();
+        }
         if (body.redirect_url) {
             actions.innerHTML = `<a href="${body.redirect_url}" target="_blank" rel="noopener">Abrir Checkout Pro</a>`;
         }
@@ -123,38 +119,35 @@ form.addEventListener('submit', async (event) => {
     }
 });
 
-async function loadWebhookEvents() {
-    const response = await fetch('/api/webhooks/mercadopago/events');
-    const events = await response.json();
-    if (!events.length) {
-        webhookEvents.innerHTML = '<p class="hint">Nenhum evento recebido.</p>';
-        return;
-    }
-    webhookEvents.innerHTML = events.map((event) => {
-        const title = [
-            `#${event.id}`,
-            event.type || event.query.topic,
-            event.action,
-            event.payment_id || event.paymentId || event.query.id,
-        ].filter(Boolean).join(' - ');
-        return `
-            <article class="event">
-                <strong>${title}</strong>
-                <span class="hint">${event.received_at || event.receivedAt}</span>
-                <pre>${JSON.stringify(event, null, 2)}</pre>
-            </article>
-        `;
-    }).join('');
+function renderPaymentStatus(status) {
+    paymentStatusSection.hidden = false;
+    paymentStatus.classList.toggle('paid', Boolean(status.paid));
+    const title = status.paid ? 'Pagamento realizado com sucesso' : 'Aguardando pagamento';
+    paymentStatus.innerHTML = `
+        <div class="status-title">${title}</div>
+        <div>${status.status_message || status.status || 'Status indisponivel'}</div>
+        <div class="hint">ID local: ${status.local_payment_id || currentPaymentId}</div>
+    `;
 }
 
-refreshWebhooks.addEventListener('click', loadWebhookEvents);
-clearWebhooks.addEventListener('click', async () => {
-    await fetch('/api/webhooks/mercadopago/events', { method: 'DELETE' });
-    await loadWebhookEvents();
-});
+async function loadPaymentStatus() {
+    if (!currentPaymentId) return;
+    const response = await fetch(`/api/payments/${currentPaymentId}/status`);
+    if (!response.ok) return;
+    const status = await response.json();
+    renderPaymentStatus(status);
+    if (status.paid && paymentStatusTimer) {
+        clearInterval(paymentStatusTimer);
+        paymentStatusTimer = null;
+    }
+}
 
-loadWebhookEvents();
-setInterval(loadWebhookEvents, 3000);
+function startPaymentStatusPolling() {
+    if (paymentStatusTimer) clearInterval(paymentStatusTimer);
+    loadPaymentStatus();
+    paymentStatusTimer = setInterval(loadPaymentStatus, 1000);
+}
+if (currentPaymentId) startPaymentStatusPolling();
 </script>
 </body>
 </html>

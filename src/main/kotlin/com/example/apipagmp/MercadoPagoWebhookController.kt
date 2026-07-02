@@ -19,6 +19,8 @@ data class WebhookEvent(
     val query: Map<String, String>,
     val type: String?,
     val action: String?,
+    val resourceId: String?,
+    val status: String?,
     val paymentId: String?,
     val body: JsonNode?,
 )
@@ -37,7 +39,9 @@ class WebhookEventStore {
             query = request.parameterMap.mapValues { (_, value) -> value.joinToString(",") },
             type = body.textAt("type") ?: request.getParameter("topic"),
             action = body.textAt("action"),
-            paymentId = body.textAt("data", "id") ?: request.getParameter("id"),
+            resourceId = body.textAt("data", "id") ?: body.textAt("id") ?: request.getParameter("id"),
+            status = body.textAt("status") ?: body.textAt("data", "status"),
+            paymentId = body.textAt("data", "id") ?: body.textAt("id") ?: request.getParameter("id"),
             body = body,
         )
         events.add(0, event)
@@ -54,20 +58,29 @@ class WebhookEventStore {
 
 @RestController
 @RequestMapping("/api/webhooks/mercadopago")
-class MercadoPagoWebhookController(private val store: WebhookEventStore) {
+class MercadoPagoWebhookController(
+    private val store: WebhookEventStore,
+    private val paymentStatusService: PaymentStatusService,
+) {
     @PostMapping
     fun receivePost(
         @RequestBody(required = false) body: JsonNode?,
         request: HttpServletRequest,
     ): Map<String, Any?> {
         val event = store.add(request, body)
-        return mapOf("received" to true, "event_id" to event.id)
+        return event.toWebhookResponse()
     }
 
     @GetMapping
     fun receiveGet(request: HttpServletRequest): Map<String, Any?> {
+        if (request.parameterMap.isEmpty()) {
+            return mapOf(
+                "received" to false,
+                "message" to "GET sem parametros ignorado. Webhooks reais devem chegar por POST ou por GET com query.",
+            )
+        }
         val event = store.add(request, null)
-        return mapOf("received" to true, "event_id" to event.id)
+        return event.toWebhookResponse()
     }
 
     @GetMapping("/events")
@@ -77,6 +90,16 @@ class MercadoPagoWebhookController(private val store: WebhookEventStore) {
     fun clear(): Map<String, Any> {
         store.clear()
         return mapOf("cleared" to true)
+    }
+
+    private fun WebhookEvent.toWebhookResponse(): Map<String, Any?> {
+        val status = runCatching { paymentStatusService.refreshFromWebhook(this) }
+        return mapOf(
+            "received" to true,
+            "event_id" to id,
+            "payment_status" to status.getOrNull(),
+            "refresh_error" to status.exceptionOrNull()?.message,
+        )
     }
 }
 
