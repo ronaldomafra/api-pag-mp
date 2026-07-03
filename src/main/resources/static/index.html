@@ -38,6 +38,9 @@
         <label for="payerEmail">E-mail do pagador</label>
         <input id="payerEmail" name="payerEmail" type="email" placeholder="comprador@email.com">
 
+        <label for="notificationUrl">URL do webhook</label>
+        <input id="notificationUrl" name="notificationUrl" type="url" placeholder="https://sua-url-publica/api/webhooks/mercadopago">
+
         <label for="paymentType">Tipo de pagamento</label>
         <select id="paymentType" name="paymentType">
             <option value="CHECKOUT_PRO">Checkout Pro (redirecionamento)</option>
@@ -65,9 +68,11 @@ const actions = document.querySelector('#actions');
 const json = document.querySelector('#json');
 const paymentStatusSection = document.querySelector('#payment-status-section');
 const paymentStatus = document.querySelector('#payment-status');
+const notificationUrl = document.querySelector('#notificationUrl');
 
 let currentPaymentId = localStorage.getItem('apiPagMpCurrentPaymentId');
 let paymentStatusTimer = null;
+notificationUrl.value = `${window.location.origin}/api/webhooks/mercadopago`;
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -79,6 +84,7 @@ form.addEventListener('submit', async (event) => {
     data.amount = Number(data.amount);
     if (!data.publicKey) delete data.publicKey;
     if (!data.payerEmail) delete data.payerEmail;
+    if (!data.notificationUrl) delete data.notificationUrl;
 
     try {
         const response = await fetch('/api/payments', {
